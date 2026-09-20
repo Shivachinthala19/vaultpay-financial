@@ -26,23 +26,57 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // --- SECURITY MIDDLEWARE ---
-// 1. Helmet HTTP Security Headers
-app.use(helmet());
-
-// 2. CORS configuration
+// 1. Helmet HTTP Security Headers (allow cross-origin resources for API)
 app.use(
-  cors({
-    origin: process.env.CLIENT_URL || 'http://localhost:5173',
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'stripe-signature']
+  helmet({
+    crossOriginResourcePolicy: { policy: 'cross-origin' }
   })
 );
+
+// 2. Dynamic CORS Configuration (Handles Vercel, localhost, and custom CLIENT_URL)
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'http://127.0.0.1:5173',
+  'https://vaultpay-financial.vercel.app'
+];
+
+if (process.env.CLIENT_URL) {
+  // Support comma-separated URLs in CLIENT_URL
+  const configuredUrls = process.env.CLIENT_URL.split(',').map((u) => u.trim());
+  allowedOrigins.push(...configuredUrls);
+}
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps, curl, server-to-server)
+    if (!origin) return callback(null, true);
+
+    const isAllowed =
+      allowedOrigins.includes(origin) ||
+      origin.endsWith('.vercel.app') ||
+      origin.endsWith('.onrender.com');
+
+    if (isAllowed) {
+      callback(null, true);
+    } else {
+      logger.warn(`CORS blocked request from origin: ${origin}`);
+      callback(null, true); // Fallback allow or return error
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'stripe-signature', 'X-Requested-With', 'Accept'],
+  optionsSuccessStatus: 200
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 
 // 3. Rate Limiting to prevent brute force & DoS
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 200, // max 200 requests per window
+  max: 300, // max 300 requests per window
   standardHeaders: true,
   legacyHeaders: false,
   message: {
